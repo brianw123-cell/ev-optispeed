@@ -104,16 +104,16 @@ export function MethodologySection() {
       <Card className="border border-border shadow-sm">
         <Button
           variant="ghost"
-          className="w-full px-6 py-4 text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset rounded-t-xl h-auto"
+          className="w-full px-4 sm:px-6 py-4 text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset rounded-t-xl h-auto"
           onClick={() => setIsExpanded(!isExpanded)}
           data-testid="button-methodology-toggle"
         >
-          <h2 className="text-lg font-semibold text-foreground flex items-center">
-            <Info className="text-primary mr-2 h-5 w-5" />
-            How It Works
+          <h2 className="text-base sm:text-lg font-semibold text-foreground flex items-center min-w-0 flex-1 whitespace-normal break-words">
+            <Info className="text-primary mr-2 h-5 w-5 flex-shrink-0" />
+            <span className="min-w-0">How It Works</span>
           </h2>
-          <ChevronDown 
-            className={`text-muted-foreground transition-transform duration-200 h-4 w-4 ${
+          <ChevronDown
+            className={`text-muted-foreground transition-transform duration-200 h-4 w-4 flex-shrink-0 ${
               isExpanded ? 'rotate-180' : ''
             }`}
           />
@@ -180,16 +180,16 @@ export function MethodologySection() {
       <Card className="border border-border shadow-sm">
         <Button
           variant="ghost"
-          className="w-full px-6 py-4 text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset rounded-t-xl h-auto"
+          className="w-full px-4 sm:px-6 py-4 text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset rounded-t-xl h-auto"
           onClick={() => setIsFormulasExpanded(!isFormulasExpanded)}
           data-testid="button-formulas-toggle"
         >
-          <h2 className="text-lg font-semibold text-foreground flex items-center">
-            <Calculator className="text-primary mr-2 h-5 w-5" />
-            The Science Behind the Calculations
+          <h2 className="text-base sm:text-lg font-semibold text-foreground flex items-center min-w-0 flex-1 whitespace-normal break-words">
+            <Calculator className="text-primary mr-2 h-5 w-5 flex-shrink-0" />
+            <span className="min-w-0">The Science Behind the Calculations</span>
           </h2>
-          <ChevronDown 
-            className={`text-muted-foreground transition-transform duration-200 h-4 w-4 ${
+          <ChevronDown
+            className={`text-muted-foreground transition-transform duration-200 h-4 w-4 flex-shrink-0 ${
               isFormulasExpanded ? 'rotate-180' : ''
             }`}
           />
@@ -315,16 +315,16 @@ export function MethodologySection() {
       <Card className="border border-border shadow-sm">
         <Button
           variant="ghost"
-          className="w-full px-6 py-4 text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset rounded-t-xl h-auto"
+          className="w-full px-4 sm:px-6 py-4 text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset rounded-t-xl h-auto"
           onClick={() => setIsValidationExpanded(!isValidationExpanded)}
           data-testid="button-validation-toggle"
         >
-          <h2 className="text-lg font-semibold text-foreground flex items-center">
-            <FlaskConical className="text-primary mr-2 h-5 w-5" />
-            Accuracy Validation Tests
+          <h2 className="text-base sm:text-lg font-semibold text-foreground flex items-center min-w-0 flex-1 whitespace-normal break-words">
+            <FlaskConical className="text-primary mr-2 h-5 w-5 flex-shrink-0" />
+            <span className="min-w-0">Accuracy Validation Tests</span>
           </h2>
-          <ChevronDown 
-            className={`text-muted-foreground transition-transform duration-200 h-4 w-4 ${
+          <ChevronDown
+            className={`text-muted-foreground transition-transform duration-200 h-4 w-4 flex-shrink-0 ${
               isValidationExpanded ? 'rotate-180' : ''
             }`}
           />
