@@ -311,7 +311,9 @@ export function MethodologySection() {
         )}
       </Card>
 
-      {/* Validation Test Cases */}
+      {/* Validation Test Cases — hidden pending real fixtures (Phase 2 will replace with
+          vitest tests pinned to EV-Database.org and EPA highway-cycle data) */}
+      {false && (
       <Card className="border border-border shadow-sm">
         <Button
           variant="ghost"
@@ -453,6 +455,7 @@ export function MethodologySection() {
           </CardContent>
         )}
       </Card>
+      )}
 
       {/* Pro Tips */}
       <Card className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950/20 dark:to-blue-950/20 border border-green-200 dark:border-green-800">
