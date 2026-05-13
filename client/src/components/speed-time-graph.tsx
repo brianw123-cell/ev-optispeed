@@ -1,4 +1,4 @@
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceArea } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp } from 'lucide-react';
 import type { OptimizationResult } from '@/lib/ev-optimization';
@@ -15,23 +15,28 @@ export function SpeedTimeGraph({ results }: SpeedTimeGraphProps) {
     feasible: point.feasible
   }));
 
-  // Calculate Y-axis domain - show 10 minutes below the minimum time
-  const allTimes = chartData.map(point => point.time);
-  const minTime = Math.min(...allTimes);
-  const maxTime = Math.max(...allTimes);
-  const yAxisMin = Math.max(0, Math.floor(minTime - 10)); // Show 10 minutes below, rounded down
-  const yAxisMax = Math.ceil(maxTime + 2); // Small padding above, rounded up
-
-  // Calculate X-axis domain - show speeds from minimum up to optimal + 2 mph
+  // X-axis: show the FULL speed range so users can see the cliff above optimal.
   const xAxisMin = Math.min(...chartData.map(point => point.speed));
-  const xAxisMax = Math.min(results.optimalSpeed + 2, Math.max(...chartData.map(point => point.speed)));
-  
-  // Filter chart data to only include speeds within the display range
-  const filteredChartData = chartData.filter(point => point.speed <= xAxisMax);
+  const xAxisMax = Math.max(...chartData.map(point => point.speed));
 
-  // Separate feasible and infeasible data points (from filtered data)
-  const feasibleData = filteredChartData.filter(point => point.feasible);
-  const infeasibleData = filteredChartData.filter(point => !point.feasible);
+  // Y-axis: focus on the feasible portion plus a bit of context. Showing the full
+  // y-range (which can be huge if low speeds map to long charging times) crushes
+  // the interesting variation, so we clip the top.
+  const feasibleTimes = chartData.filter(p => p.feasible).map(p => p.time);
+  const allTimes = chartData.map(p => p.time);
+  const minTime = feasibleTimes.length > 0 ? Math.min(...feasibleTimes) : Math.min(...allTimes);
+  const maxFeasibleTime = feasibleTimes.length > 0 ? Math.max(...feasibleTimes) : Math.max(...allTimes);
+  const yAxisMin = Math.max(0, Math.floor(minTime - 5));
+  const yAxisMax = Math.ceil(maxFeasibleTime * 1.4 + 5);
+
+  // Find the threshold where feasibility flips so we can shade the infeasible zone
+  const infeasiblePoints = chartData.filter(p => !p.feasible);
+  const feasibilityCutoff = infeasiblePoints.length > 0
+    ? Math.min(...infeasiblePoints.map(p => p.speed))
+    : null;
+
+  const feasibleData = chartData.filter(point => point.feasible);
+  const infeasibleData = chartData.filter(point => !point.feasible);
 
   // Custom tooltip component
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -65,7 +70,7 @@ export function SpeedTimeGraph({ results }: SpeedTimeGraphProps) {
         <div className="h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
-              data={filteredChartData}
+              data={chartData}
               margin={{
                 top: 5,
                 right: 30,
@@ -74,6 +79,17 @@ export function SpeedTimeGraph({ results }: SpeedTimeGraphProps) {
               }}
             >
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+              {feasibilityCutoff !== null && (
+                <ReferenceArea
+                  x1={feasibilityCutoff}
+                  x2={xAxisMax}
+                  y1={yAxisMin}
+                  y2={yAxisMax}
+                  fill="#ef4444"
+                  fillOpacity={0.06}
+                  stroke="none"
+                />
+              )}
               <XAxis 
                 dataKey="speed" 
                 type="number"

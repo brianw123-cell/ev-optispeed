@@ -28,20 +28,26 @@ export function InstallPrompt() {
       }
     }
 
+    // Capture the install prompt event but DON'T show the UI yet — wait until the user
+    // has actually used the app (after their first successful calculation).
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+
+    const onFirstCalc = () => {
+      // Only surface the prompt once the user has gotten value from the app.
+      // Android: deferredPrompt will be set by the time this fires (or shortly after).
+      // iOS: no native prompt event, but we can still show the "add to home screen" tip.
       setShowPrompt(true);
     };
 
     window.addEventListener('beforeinstallprompt', handler);
-
-    if (isIOSDevice && !checkInstalled) {
-      setTimeout(() => setShowPrompt(true), 3000);
-    }
+    window.addEventListener('app:first-calculation', onFirstCalc);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('app:first-calculation', onFirstCalc);
     };
   }, []);
 

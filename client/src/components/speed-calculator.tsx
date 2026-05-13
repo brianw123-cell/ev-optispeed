@@ -210,6 +210,13 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
   const voiceInput = useVoiceGuidedInput({
     form,
     fields: voiceFields,
+    onError: (message: string) => {
+      toast({
+        variant: "destructive",
+        title: "Voice input unavailable",
+        description: message
+      });
+    },
     onComplete: async () => {
       // Auto-submit form after voice input completion and read results
       const formData = form.getValues();
@@ -287,6 +294,8 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       const convertedData = convertToOptimizationFormat(data);
       const results = optimizeSpeed(convertedData);
       onResults(results, data);
+      // Signal that the app has been used at least once — install prompt waits on this.
+      window.dispatchEvent(new Event('app:first-calculation'));
     } catch (error) {
       console.error("Optimization failed:", error);
       toast({
@@ -310,6 +319,8 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       const convertedData = convertToOptimizationFormat(data);
       const results = optimizeSpeed(convertedData);
       onResults(results, data);
+      // Signal that the app has been used at least once — install prompt waits on this.
+      window.dispatchEvent(new Event('app:first-calculation'));
       return results;
     } catch (error) {
       console.error("Optimization failed:", error);

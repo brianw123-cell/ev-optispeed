@@ -1,7 +1,13 @@
+import { lazy, Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Gauge, Clock, Battery, AlertTriangle, Zap } from "lucide-react";
-import { SpeedTimeGraph } from "@/components/speed-time-graph";
 import type { OptimizationResult, OptimizationMode } from "@/lib/ev-optimization";
+
+// Lazy-load the chart so recharts (~300 kB) drops out of the initial bundle.
+// The graph is below the fold and not needed until after the user submits.
+const SpeedTimeGraph = lazy(() =>
+  import("@/components/speed-time-graph").then(m => ({ default: m.SpeedTimeGraph }))
+);
 
 interface ResultsDisplayProps {
   results: OptimizationResult | null;
@@ -194,7 +200,9 @@ export function CompleteResultsDisplay({ results, minArrivalCharge = 5, distance
     <div className="space-y-4">
       <ResultsDisplay results={results} minArrivalCharge={minArrivalCharge} distanceUnit={distanceUnit} mode={mode} />
       {results.optimalSpeed > 0 && results.speedVsTimeData && results.speedVsTimeData.length > 0 && (
-        <SpeedTimeGraph results={results} />
+        <Suspense fallback={<div className="h-40 bg-muted/20 rounded animate-pulse" />}>
+          <SpeedTimeGraph results={results} />
+        </Suspense>
       )}
     </div>
   );

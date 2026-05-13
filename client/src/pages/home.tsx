@@ -57,15 +57,11 @@ export default function Home() {
 
       <footer className="bg-card border-t border-border mt-12">
         <div className="max-w-4xl mx-auto px-4 py-6">
-          <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-            <div className="text-sm text-muted-foreground">
-              <p>© 2024 EV Speed Optimizer. Built for efficient electric vehicle travel.</p>
-            </div>
-            <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-              <a href="#" className="hover:text-primary transition-colors">About</a>
-              <a href="#" className="hover:text-primary transition-colors">FAQ</a>
-              <a href="#" className="hover:text-primary transition-colors">Privacy</a>
-            </div>
+          <div className="text-center text-sm text-muted-foreground">
+            <p>© {new Date().getFullYear()} EV Speed Optimizer. Built for efficient electric vehicle travel.</p>
+            <p className="text-xs mt-1">
+              Calculations are estimates. Real-world conditions vary — always plan with a safety margin.
+            </p>
           </div>
         </div>
       </footer>
