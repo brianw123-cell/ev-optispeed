@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormField, FormItem, FormLabel, FormMessage, FormControl } from "@/components/ui/form";
-import { Zap, Calculator, Mic, MicOff } from "lucide-react";
-import { optimizeSpeed, type OptimizationInput, type OptimizationResult, getVehiclesByCategory, getVehicleProfile } from "@/lib/ev-optimization";
+import { Zap, Calculator, Mic, MicOff, Clock, Gauge } from "lucide-react";
+import { optimizeSpeed, type OptimizationInput, type OptimizationResult, type OptimizationMode, getVehiclesByCategory, getVehicleProfile } from "@/lib/ev-optimization";
 import { useVoiceGuidedInput } from "@/hooks/use-voice-guided-input";
 import { speakWithClearVoice } from "@/lib/voice-utils";
+import { useToast } from "@/hooks/use-toast";
 
 // Unit preferences types
 type RangeUnit = "miles" | "kilometers" | "percentage";
@@ -30,7 +31,9 @@ const formSchema = z.object({
   vehicleType: z.string(),
   ambientTemp: z.number().min(-40, "Temperature too cold").max(120, "Temperature too hot"),
   minArrivalCharge: z.number().min(1, "Minimum arrival charge must be at least 1%").max(50, "Minimum arrival charge cannot exceed 50%"),
-  hasBikeRack: z.boolean().default(false)
+  hasBikeRack: z.boolean().default(false),
+  mode: z.enum(['total-time', 'driving-only']).default('total-time'),
+  targetChargePercent: z.number().min(20, "Target charge must be at least 20%").max(100, "Target charge cannot exceed 100%").default(80)
 });
 
 interface SpeedCalculatorProps {
@@ -39,6 +42,7 @@ interface SpeedCalculatorProps {
 
 export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
   const [isCalculating, setIsCalculating] = useState(false);
+  const { toast } = useToast();
   const [unitPreferences, setUnitPreferences] = useState<UnitPreferences>({
     remainingRange: "miles",
     distanceToCharger: "miles",
@@ -132,7 +136,9 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       vehicleType: "tesla-model-3",
       ambientTemp: 70,
       minArrivalCharge: 5,
-      hasBikeRack: false
+      hasBikeRack: false,
+      mode: 'total-time' as OptimizationMode,
+      targetChargePercent: 80
     };
   };
 
@@ -163,19 +169,17 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
   const parseVehicle = (transcript: string): string => {
     const text = transcript.toLowerCase();
     const vehicles = Object.values(vehiclesByCategory).flat();
-    
-    // Find best match based on vehicle name
+
+    // Score each vehicle by how many of its tokens appear in the transcript
+    let bestMatch: { id: string; score: number } | null = null;
     for (const vehicle of vehicles) {
-      const vehicleName = (vehicle as any).name?.toLowerCase() || vehicle.id.toLowerCase();
-      const brandModel = vehicleName.split(' ');
-      
-      // Check if transcript contains brand and/or model
-      if (brandModel.some((part: string) => text.includes(part))) {
-        return vehicle.id;
+      const tokens = `${vehicle.brand} ${vehicle.model}`.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+      const score = tokens.filter(t => text.includes(t)).length;
+      if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+        bestMatch = { id: vehicle.id, score };
       }
     }
-    
-    return form.getValues('vehicleType'); // Return current value if no match
+    return bestMatch ? bestMatch.id : form.getValues('vehicleType');
   };
 
   const parseBoolean = (transcript: string): boolean => {
@@ -239,14 +243,25 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
 
   // Helper function to convert units to expected format (miles/percentage)
   const convertToOptimizationFormat = (data: z.infer<typeof formSchema>): OptimizationInput => {
-    let convertedData = { ...data };
+    let convertedData: OptimizationInput = {
+      remainingRange: data.remainingRange,
+      distanceToCharger: data.distanceToCharger,
+      vehicleType: data.vehicleType,
+      ambientTemp: data.ambientTemp,
+      minArrivalCharge: data.minArrivalCharge,
+      hasBikeRack: data.hasBikeRack,
+      mode: data.mode,
+      targetChargePercent: data.targetChargePercent
+    };
 
     // Convert remaining range to miles if needed
     if (unitPreferences.remainingRange === "kilometers") {
       convertedData.remainingRange = data.remainingRange * 0.621371;
     } else if (unitPreferences.remainingRange === "percentage") {
-      // Assume 300 mile range at 100% for conversion
-      convertedData.remainingRange = (data.remainingRange / 100) * 300;
+      // Use the selected vehicle's actual EPA range, not a generic 300-mile assumption
+      const vehicleProfile = getVehicleProfile(data.vehicleType);
+      const epaRange = vehicleProfile?.epaRange ?? 300;
+      convertedData.remainingRange = (data.remainingRange / 100) * epaRange;
     }
 
     // Convert distance to charger to miles if needed
@@ -259,24 +274,26 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       convertedData.ambientTemp = (data.ambientTemp * 9/5) + 32;
     }
 
-    // Pass through bike rack status
-    convertedData.hasBikeRack = data.hasBikeRack;
-
     return convertedData;
   };
 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     setIsCalculating(true);
-    
+
     // Simulate calculation time for better UX
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     try {
       const convertedData = convertToOptimizationFormat(data);
       const results = optimizeSpeed(convertedData);
       onResults(results, data);
     } catch (error) {
       console.error("Optimization failed:", error);
+      toast({
+        variant: "destructive",
+        title: "Calculation failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred. Please check your inputs."
+      });
     } finally {
       setIsCalculating(false);
     }
@@ -285,10 +302,10 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
   // Special submission for voice input that returns results
   const onSubmitWithVoiceResult = async (data: z.infer<typeof formSchema>) => {
     setIsCalculating(true);
-    
+
     // Simulate calculation time for better UX
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     try {
       const convertedData = convertToOptimizationFormat(data);
       const results = optimizeSpeed(convertedData);
@@ -296,6 +313,11 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       return results;
     } catch (error) {
       console.error("Optimization failed:", error);
+      toast({
+        variant: "destructive",
+        title: "Calculation failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred."
+      });
       return null;
     } finally {
       setIsCalculating(false);
@@ -307,6 +329,92 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       <CardContent className="p-2">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-1.5" data-testid="optimization-form">
+            {/* Mode toggle */}
+            <FormField
+              control={form.control}
+              name="mode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm">What to minimize</FormLabel>
+                  <FormControl>
+                    <div className="grid grid-cols-2 gap-1 p-1 bg-muted rounded-md" role="radiogroup">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={field.value === 'total-time'}
+                        onClick={() => field.onChange('total-time')}
+                        className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                          field.value === 'total-time'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        data-testid="mode-total-time"
+                      >
+                        <Clock className="h-3.5 w-3.5" />
+                        Drive + Charge time
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={field.value === 'driving-only'}
+                        onClick={() => field.onChange('driving-only')}
+                        className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                          field.value === 'driving-only'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        data-testid="mode-driving-only"
+                      >
+                        <Gauge className="h-3.5 w-3.5" />
+                        Drive time only
+                      </button>
+                    </div>
+                  </FormControl>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {field.value === 'total-time'
+                      ? 'Best for long road trips — finds the speed that minimizes time on the road plus charging.'
+                      : "Max safe speed. Best when you'll be charging during a meal, meeting, or overnight."}
+                  </p>
+                </FormItem>
+              )}
+            />
+
+            {/* Target charge — only shown in total-time mode */}
+            {form.watch('mode') === 'total-time' && (
+              <FormField
+                control={form.control}
+                name="targetChargePercent"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Charge back up to</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          placeholder="80"
+                          min="20"
+                          max="100"
+                          {...field}
+                          value={field.value === 0 ? '' : field.value}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            field.onChange(value === '' ? 0 : Number(value));
+                          }}
+                          className="pr-8 h-8 text-sm"
+                          data-testid="input-target-charge"
+                        />
+                        <span className="absolute right-2 top-2 text-muted-foreground text-xs">%</span>
+                      </div>
+                    </FormControl>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Default 80% — DC fast charging slows above this. Lower if you only need enough for the next leg.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             <div className="space-y-1">
               <FormField
                 control={form.control}

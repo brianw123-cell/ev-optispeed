@@ -7,6 +7,8 @@ export interface VehicleConfig {
   chargingEfficiency: number;
 }
 
+export type OptimizationMode = 'total-time' | 'driving-only';
+
 export interface OptimizationInput {
   remainingRange: number; // miles
   distanceToCharger: number; // miles
@@ -14,6 +16,8 @@ export interface OptimizationInput {
   ambientTemp: number; // Fahrenheit
   minArrivalCharge: number; // percentage
   hasBikeRack: boolean; // adds aerodynamic drag
+  mode?: OptimizationMode; // default: 'total-time'
+  targetChargePercent?: number; // SoC to charge back up to (default 80)
 }
 
 export interface OptimizationResult {
@@ -539,21 +543,12 @@ function calculateEnergyConsumption(speedMph: number, vehicle: VehicleConfig, te
   
   // Convert to kW and account for drivetrain efficiency (~92% for modern EVs)
   const powerKw = (powerWatts / 1000) / 0.92;
-  
-  // Apply temperature effect on battery efficiency
-  const batteryEfficiency = getBatteryEfficiencyFactor(tempF);
-  const adjustedPowerKw = powerKw / batteryEfficiency;
-  
+
   // Energy consumption per mile (kWh/mile)
-  const energyPerMile = adjustedPowerKw / speedMph;
-  
-  // Sanity check: Most EVs consume 0.2-0.7 kWh/mile at highway speeds
-  // If calculation seems way off, there might be an error in parameters
-  if (energyPerMile > 1.0) {
-    console.warn(`Warning: Very high energy consumption calculated: ${energyPerMile.toFixed(3)} kWh/mile at ${speedMph} mph`);
-  }
-  
-  return energyPerMile;
+  // Temperature already affects this through air density (cold air = denser = more drag).
+  // We do NOT divide by battery efficiency here — that would double-count cold weather
+  // because the user's reported remaining range is already weather-derated by their dash GOM.
+  return powerKw / speedMph;
 }
 
 // Calculate charging time based on charging curve
@@ -577,8 +572,8 @@ function calculateChargingTime(
     powerFactor = 0.9;
   }
   
-  // Effective charging power
-  const effectivePower = Math.min(chargerPower * powerFactor, chargerPower) * vehicle.chargingEfficiency;
+  // Effective charging power (taper × charging efficiency)
+  const effectivePower = chargerPower * powerFactor * vehicle.chargingEfficiency;
   
   // Energy to add (kWh)
   const energyToAdd = (toPercent - fromPercent) / 100 * vehicle.batteryCapacity;
@@ -587,177 +582,171 @@ function calculateChargingTime(
   return energyToAdd / effectivePower;
 }
 
-// Calculate driving time and energy for a given speed
+// Calculate driving time, energy used, and arrival charge for a given test speed.
+// Uses a single physics model. The user's reported remaining range is treated at face
+// value as miles available at typical highway speed in current weather — i.e. the dash's
+// GOM estimate. We back into starting energy from that, then deduct the energy this trip
+// would consume at the test speed.
 function calculateDrivingMetrics(
   speedMph: number,
   input: OptimizationInput,
   vehicle: VehicleConfig
-): { drivingTime: number; arrivalCharge: number; energyUsed: number } {
-  // Driving time
+): { drivingTime: number; arrivalCharge: number; energyUsed: number; energyConsumption: number } {
   const drivingTime = input.distanceToCharger / speedMph;
-  
-  // Energy consumption
+
+  // Per-mile consumption at the test speed (pure physics, weather-adjusted via air density)
   const energyConsumption = calculateEnergyConsumption(speedMph, vehicle, input.ambientTemp, input.hasBikeRack);
   const energyUsed = energyConsumption * input.distanceToCharger;
-  
-  // Calculate current energy based on remaining range
-  // Convert remaining range to energy by using vehicle's EPA range and battery capacity
-  const vehicleProfile = getVehicleProfile(input.vehicleType);
-  const epaRange = vehicleProfile?.epaRange || 300; // Default fallback
-  
-  // Calculate remaining energy as percentage of full battery
-  const remainingPercentage = Math.min(100, (input.remainingRange / epaRange) * 100);
-  const currentEnergy = (remainingPercentage / 100) * vehicle.batteryCapacity;
-  
-  // EPA-calibrated energy consumption check
-  // EPA efficiency assumes mixed driving; pure highway efficiency varies by speed
-  const epaEfficiency = vehicle.batteryCapacity / epaRange; // kWh/mile at EPA conditions
-  
-  // More realistic speed efficiency factors based on aerodynamic impact
-  let speedEfficiencyFactor;
-  if (speedMph <= 45) {
-    speedEfficiencyFactor = 0.85; // Very efficient at low speeds
-  } else if (speedMph <= 65) {
-    speedEfficiencyFactor = 0.95; // Near optimal at moderate highway speeds
-  } else if (speedMph <= 75) {
-    speedEfficiencyFactor = 1.05; // Slightly less efficient
-  } else if (speedMph <= 85) {
-    speedEfficiencyFactor = 1.15; // Noticeable efficiency loss
-  } else {
-    speedEfficiencyFactor = 1.25 + (speedMph - 85) * 0.02; // Significant efficiency loss at high speeds
-  }
-  
-  const calibratedEnergyConsumption = epaEfficiency * speedEfficiencyFactor;
-  
-  // Use a balanced approach: average of physics and EPA-calibrated, but never lower than 80% of EPA
-  const minRealisticConsumption = epaEfficiency * 0.80; // Never more efficient than 80% of EPA
-  const balancedConsumption = (energyConsumption + calibratedEnergyConsumption) / 2;
-  const adjustedEnergyConsumption = Math.max(minRealisticConsumption, Math.min(energyConsumption, balancedConsumption));
-  const adjustedEnergyUsed = adjustedEnergyConsumption * input.distanceToCharger;
-  
-  // Energy remaining after trip (using adjusted consumption)
-  const energyAfterTrip = currentEnergy - adjustedEnergyUsed;
-  const arrivalChargePercent = Math.max(0, (energyAfterTrip / vehicle.batteryCapacity) * 100);
-  
-  // Debug logging for energy calculations
-  if (typeof window !== 'undefined' && window.console) {
-    const vehicleName = vehicleProfile?.brand + ' ' + vehicleProfile?.model || input.vehicleType;
-    console.log(`Energy Debug: ${vehicleName}, Speed=${speedMph}mph, Range=${input.remainingRange}mi, Distance=${input.distanceToCharger}mi, EPA=${epaRange}mi, CurrentEnergy=${currentEnergy.toFixed(1)}kWh, EPAEfficiency=${epaEfficiency.toFixed(3)}kWh/mi, SpeedFactor=${speedEfficiencyFactor.toFixed(2)}, PhysicsConsumption=${energyConsumption.toFixed(3)}kWh/mi, CalibratedConsumption=${calibratedEnergyConsumption.toFixed(3)}kWh/mi, UsedConsumption=${adjustedEnergyConsumption.toFixed(3)}kWh/mi, EnergyUsed=${adjustedEnergyUsed.toFixed(1)}kWh, ArrivalCharge=${arrivalChargePercent.toFixed(1)}%`);
-  }
-  
+
+  // Starting energy in the battery: derived from the user's reported range at a typical
+  // highway baseline (65 mph) in current weather. This makes the model self-consistent —
+  // if the user says "I have 150 miles," we trust that means 150 miles at typical driving.
+  const baselineConsumption = calculateEnergyConsumption(65, vehicle, input.ambientTemp, input.hasBikeRack);
+  const startingEnergy = input.remainingRange * baselineConsumption;
+
+  // Arrival energy and charge percentage of nominal battery capacity
+  const energyAfterTrip = startingEnergy - energyUsed;
+  const arrivalChargePercent = (energyAfterTrip / vehicle.batteryCapacity) * 100;
+
   return {
     drivingTime,
     arrivalCharge: arrivalChargePercent,
-    energyUsed: adjustedEnergyUsed
+    energyUsed,
+    energyConsumption
   };
 }
 
-// Find optimal speed that minimizes driving time only
+// Find the optimal speed.
+// In 'total-time' mode (default): minimize driving + charging time. Faster speeds save drive
+// time but leave a lower arrival SoC, which requires more charging. The sweet spot depends
+// on the vehicle's charging curve and the trip distance.
+// In 'driving-only' mode: just find the highest feasible speed (useful when the user has
+// time to charge anyway — e.g. dinner stop, overnight).
 export function optimizeSpeed(input: OptimizationInput): OptimizationResult {
   const vehicle = getVehicleConfig(input.vehicleType);
-  
-  // Early feasibility check: Basic physics constraint
-  // Check if trip is possible even at the most efficient speed (45 mph)
-  const mostEfficientResult = calculateDrivingMetrics(45, input, vehicle);
-  if (mostEfficientResult.arrivalCharge < input.minArrivalCharge) {
-    return {
-      optimalSpeed: 0,
-      totalTime: Infinity,
-      drivingTime: 0,
-      chargingTime: 0,
-      arrivalCharge: mostEfficientResult.arrivalCharge,
-      energyConsumption: 0,
-      energyUsed: mostEfficientResult.energyUsed,
-      avgChargingPower: 0,
-      speedComparison: {
-        speed55: Infinity,
-        speed65: Infinity,
-        speed75: Infinity
-      },
-      speedVsTimeData: []
-    };
-  }
-  
-  let optimalSpeed = 60;
-  let minDrivingTime = Infinity;
-  let bestResult: any = null;
-  let validSpeedsFound = false;
-  
-  // Generate speed vs time data for graph
-  const speedVsTimeData: Array<{speed: number; time: number; feasible: boolean}> = [];
-  
-  // Test speeds from 45 to 120 mph in 1 mph increments for optimization
-  for (let speed = 45; speed <= 120; speed += 1) {
-    const drivingResult = calculateDrivingMetrics(speed, input, vehicle);
-    const feasible = drivingResult.arrivalCharge >= input.minArrivalCharge;
-    
-    // Add to speed vs time data (using driving time only)
-    speedVsTimeData.push({
-      speed,
-      time: drivingResult.drivingTime,
-      feasible
-    });
-    
-    // Skip invalid speeds for optimization
-    if (!feasible) {
-      continue;
-    }
-    
-    validSpeedsFound = true;
-    
-    // Find speed that minimizes DRIVING time only
-    if (drivingResult.drivingTime < minDrivingTime) {
-      minDrivingTime = drivingResult.drivingTime;
-      optimalSpeed = speed;
-      bestResult = drivingResult;
-    }
-  }
-  
-  // If no valid speeds found, check if trip is even possible
-  if (!validSpeedsFound) {
-    // Try the most efficient speed (55 mph) to see minimum energy needed
-    const mostEfficientResult = calculateDrivingMetrics(55, input, vehicle);
-    
-    // Return an error result indicating insufficient charge
-    return {
-      optimalSpeed: 0,
-      totalTime: Infinity,
-      drivingTime: 0,
-      chargingTime: 0,
-      arrivalCharge: mostEfficientResult.arrivalCharge,
-      energyConsumption: 0,
-      energyUsed: mostEfficientResult.energyUsed,
-      avgChargingPower: 0,
-      speedComparison: {
-        speed55: Infinity,
-        speed65: Infinity,
-        speed75: Infinity
-      },
-      speedVsTimeData
-    };
-  }
-  
-  // Calculate speed comparisons (driving time only)
-  const speed55Result = calculateDrivingMetrics(55, input, vehicle);
-  const speed65Result = calculateDrivingMetrics(65, input, vehicle);
-  const speed75Result = calculateDrivingMetrics(75, input, vehicle);
+  const vehicleProfile = getVehicleProfile(input.vehicleType);
+  const mode: OptimizationMode = input.mode ?? 'total-time';
+  const targetChargePercent = input.targetChargePercent ?? 80;
+  const maxChargingSpeed = vehicleProfile?.maxChargingSpeed ?? 150;
 
-  return {
-    optimalSpeed,
-    totalTime: bestResult.drivingTime, // Total time = driving time only
-    drivingTime: bestResult.drivingTime,
-    chargingTime: 0, // No charging time included
-    arrivalCharge: bestResult.arrivalCharge,
-    energyConsumption: calculateEnergyConsumption(optimalSpeed, vehicle, input.ambientTemp, input.hasBikeRack),
-    energyUsed: bestResult.energyUsed,
-    avgChargingPower: 0, // No charging calculations
+  const SPEED_MIN = 35;
+  const SPEED_MAX = 120;
+
+  const computeChargingTime = (arrivalCharge: number): number => {
+    if (mode !== 'total-time') return 0;
+    if (arrivalCharge >= targetChargePercent) return 0;
+    return calculateChargingTime(arrivalCharge, targetChargePercent, maxChargingSpeed, vehicle);
+  };
+
+  const emptyResult = (arrivalCharge: number, energyUsed: number): OptimizationResult => ({
+    optimalSpeed: 0,
+    totalTime: Infinity,
+    drivingTime: 0,
+    chargingTime: 0,
+    arrivalCharge,
+    energyConsumption: 0,
+    energyUsed,
+    avgChargingPower: 0,
+    speedComparison: { speed55: Infinity, speed65: Infinity, speed75: Infinity },
+    speedVsTimeData: []
+  });
+
+  type Candidate = {
+    speed: number;
+    drivingTime: number;
+    chargingTime: number;
+    totalTime: number;
+    arrivalCharge: number;
+    energyConsumption: number;
+    energyUsed: number;
+  };
+
+  let best: Candidate | null = null;
+  const speedVsTimeData: Array<{ speed: number; time: number; feasible: boolean }> = [];
+
+  for (let speed = SPEED_MIN; speed <= SPEED_MAX; speed++) {
+    const m = calculateDrivingMetrics(speed, input, vehicle);
+    const feasible = m.arrivalCharge >= input.minArrivalCharge;
+    const chargingTime = feasible ? computeChargingTime(m.arrivalCharge) : 0;
+    const totalTime = m.drivingTime + chargingTime;
+
+    speedVsTimeData.push({ speed, time: totalTime, feasible });
+
+    if (!feasible) continue;
+
+    const objective = mode === 'driving-only' ? m.drivingTime : totalTime;
+    const bestObjective = best
+      ? (mode === 'driving-only' ? best.drivingTime : best.totalTime)
+      : Infinity;
+
+    // Strict < ensures we pick the FIRST minimum we see (lowest speed at the tie in driving-only
+    // would be wrong — we want highest feasible speed there). Handle ties explicitly per mode.
+    const isBetter = mode === 'driving-only'
+      ? m.drivingTime < bestObjective // lower driving time = higher speed; first hit at min
+      : objective < bestObjective;
+
+    if (isBetter) {
+      best = {
+        speed,
+        drivingTime: m.drivingTime,
+        chargingTime,
+        totalTime,
+        arrivalCharge: m.arrivalCharge,
+        energyConsumption: m.energyConsumption,
+        energyUsed: m.energyUsed
+      };
+    }
+  }
+
+  if (!best) {
+    const fallback = calculateDrivingMetrics(SPEED_MIN, input, vehicle);
+    return emptyResult(fallback.arrivalCharge, fallback.energyUsed);
+  }
+
+  // Speed comparisons reflect the same objective as the optimization mode
+  const compareAt = (s: number): number => {
+    const m = calculateDrivingMetrics(s, input, vehicle);
+    if (m.arrivalCharge < input.minArrivalCharge) return Infinity;
+    const ct = computeChargingTime(m.arrivalCharge);
+    return mode === 'driving-only' ? m.drivingTime : m.drivingTime + ct;
+  };
+
+  // Average charging power during the charging session (kW)
+  const energyToAdd = best.chargingTime > 0
+    ? ((targetChargePercent - best.arrivalCharge) / 100) * vehicle.batteryCapacity
+    : 0;
+  const avgChargingPower = best.chargingTime > 0 ? energyToAdd / best.chargingTime : 0;
+
+  const result: OptimizationResult = {
+    optimalSpeed: best.speed,
+    totalTime: best.totalTime,
+    drivingTime: best.drivingTime,
+    chargingTime: best.chargingTime,
+    arrivalCharge: best.arrivalCharge,
+    energyConsumption: best.energyConsumption,
+    energyUsed: best.energyUsed,
+    avgChargingPower,
     speedComparison: {
-      speed55: speed55Result.arrivalCharge >= input.minArrivalCharge ? speed55Result.drivingTime : Infinity,
-      speed65: speed65Result.arrivalCharge >= input.minArrivalCharge ? speed65Result.drivingTime : Infinity,
-      speed75: speed75Result.arrivalCharge >= input.minArrivalCharge ? speed75Result.drivingTime : Infinity
+      speed55: compareAt(55),
+      speed65: compareAt(65),
+      speed75: compareAt(75)
     },
     speedVsTimeData
   };
+
+  // NaN / infinity guard — fail loudly rather than silently displaying garbage
+  const numericFields: Array<keyof OptimizationResult> = [
+    'optimalSpeed', 'totalTime', 'drivingTime', 'chargingTime',
+    'arrivalCharge', 'energyConsumption', 'energyUsed', 'avgChargingPower'
+  ];
+  for (const f of numericFields) {
+    const v = result[f] as number;
+    if (typeof v === 'number' && !isFinite(v)) {
+      throw new Error(`Calculation produced invalid value for ${f}. Please check your inputs.`);
+    }
+  }
+
+  return result;
 }
 
 // Export function to calculate energy consumption at a specific speed for validation testing
