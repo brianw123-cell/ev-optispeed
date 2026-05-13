@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormField, FormItem, FormLabel, FormMessage, FormControl } from "@/components/ui/form";
-import { Zap, Calculator, Mic, MicOff, Clock, Gauge } from "lucide-react";
-import { optimizeSpeed, type OptimizationInput, type OptimizationResult, type OptimizationMode, getVehiclesByCategory, getVehicleProfile } from "@/lib/ev-optimization";
+import { Calculator, Mic, MicOff } from "lucide-react";
+import { optimizeSpeed, type OptimizationInput, type OptimizationResult, getVehiclesByCategory, getVehicleProfile } from "@/lib/ev-optimization";
 import { useVoiceGuidedInput } from "@/hooks/use-voice-guided-input";
 import { speakWithClearVoice } from "@/lib/voice-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -31,9 +31,8 @@ const formSchema = z.object({
   vehicleType: z.string(),
   ambientTemp: z.number().min(-40, "Temperature too cold").max(120, "Temperature too hot"),
   minArrivalCharge: z.number().min(1, "Minimum arrival charge must be at least 1%").max(50, "Minimum arrival charge cannot exceed 50%"),
-  hasBikeRack: z.boolean().default(false),
-  mode: z.enum(['total-time', 'driving-only']).default('total-time'),
-  targetChargePercent: z.number().min(20, "Target charge must be at least 20%").max(100, "Target charge cannot exceed 100%").default(80)
+  targetChargePercent: z.number().min(20, "Target charge must be at least 20%").max(100, "Target charge cannot exceed 100%").default(80),
+  hasBikeRack: z.boolean().default(false)
 });
 
 interface SpeedCalculatorProps {
@@ -136,9 +135,8 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       vehicleType: "tesla-model-3",
       ambientTemp: 70,
       minArrivalCharge: 5,
-      hasBikeRack: false,
-      mode: 'total-time' as OptimizationMode,
-      targetChargePercent: 80
+      targetChargePercent: 80,
+      hasBikeRack: false
     };
   };
 
@@ -257,7 +255,7 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       ambientTemp: data.ambientTemp,
       minArrivalCharge: data.minArrivalCharge,
       hasBikeRack: data.hasBikeRack,
-      mode: data.mode,
+      mode: 'total-time',
       targetChargePercent: data.targetChargePercent
     };
 
@@ -340,92 +338,6 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
       <CardContent className="p-2">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-1.5" data-testid="optimization-form">
-            {/* Mode toggle */}
-            <FormField
-              control={form.control}
-              name="mode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm">What to minimize</FormLabel>
-                  <FormControl>
-                    <div className="grid grid-cols-2 gap-1 p-1 bg-muted rounded-md" role="radiogroup">
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={field.value === 'total-time'}
-                        onClick={() => field.onChange('total-time')}
-                        className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-                          field.value === 'total-time'
-                            ? 'bg-primary text-primary-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                        data-testid="mode-total-time"
-                      >
-                        <Clock className="h-3.5 w-3.5" />
-                        Drive + Charge time
-                      </button>
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={field.value === 'driving-only'}
-                        onClick={() => field.onChange('driving-only')}
-                        className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-                          field.value === 'driving-only'
-                            ? 'bg-primary text-primary-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground'
-                        }`}
-                        data-testid="mode-driving-only"
-                      >
-                        <Gauge className="h-3.5 w-3.5" />
-                        Drive time only
-                      </button>
-                    </div>
-                  </FormControl>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {field.value === 'total-time'
-                      ? 'Best for long road trips — finds the speed that minimizes time on the road plus charging.'
-                      : "Max safe speed. Best when you'll be charging during a meal, meeting, or overnight."}
-                  </p>
-                </FormItem>
-              )}
-            />
-
-            {/* Target charge — only shown in total-time mode */}
-            {form.watch('mode') === 'total-time' && (
-              <FormField
-                control={form.control}
-                name="targetChargePercent"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Charge back up to</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Input
-                          type="number"
-                          placeholder="80"
-                          min="20"
-                          max="100"
-                          {...field}
-                          value={field.value === 0 ? '' : field.value}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            field.onChange(value === '' ? 0 : Number(value));
-                          }}
-                          className="pr-8 h-8 text-sm"
-                          data-testid="input-target-charge"
-                        />
-                        <span className="absolute right-2 top-2 text-muted-foreground text-xs">%</span>
-                      </div>
-                    </FormControl>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      Default 80% — DC fast charging slows above this. Lower if you only need enough for the next leg.
-                    </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
             <div className="space-y-1">
               <FormField
                 control={form.control}
@@ -523,14 +435,14 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
 
 
 
-            {/* Min Arrival Charge and Temperature - Compact Row */}
-            <div className="grid grid-cols-2 gap-1.5">
+            {/* Min Arrival | Target Charge | Temperature — 3-col compact row */}
+            <div className="grid grid-cols-3 gap-1.5">
               <FormField
                 control={form.control}
                 name="minArrivalCharge"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm">Min Arrival Charge</FormLabel>
+                    <FormLabel className="text-xs">Min Arrival</FormLabel>
                     <FormControl>
                       <div className="relative">
                         <Input
@@ -544,10 +456,40 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
                             const value = e.target.value;
                             field.onChange(value === '' ? 0 : Number(value));
                           }}
-                          className="pr-8 h-8 text-sm"
+                          className="pr-6 h-8 text-sm"
                           data-testid="input-min-arrival-charge"
                         />
-                        <span className="absolute right-2 top-2 text-muted-foreground text-xs">%</span>
+                        <span className="absolute right-1.5 top-2 text-muted-foreground text-xs">%</span>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="targetChargePercent"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Charge To</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          placeholder="80"
+                          min="20"
+                          max="100"
+                          {...field}
+                          value={field.value === 0 ? '' : field.value}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            field.onChange(value === '' ? 0 : Number(value));
+                          }}
+                          className="pr-6 h-8 text-sm"
+                          data-testid="input-target-charge"
+                        />
+                        <span className="absolute right-1.5 top-2 text-muted-foreground text-xs">%</span>
                       </div>
                     </FormControl>
                     <FormMessage />
@@ -560,39 +502,32 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
                 name="ambientTemp"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm">Temperature</FormLabel>
+                    <FormLabel className="text-xs">Temp</FormLabel>
                     <FormControl>
-                      <div className="flex space-x-1">
-                        <div className="relative flex-1">
-                          <Input
-                            type="number"
-                            placeholder={getUnitPlaceholder("temperature", unitPreferences.temperature)}
-                            min={unitPreferences.temperature === "celsius" ? "-40" : "-40"}
-                            max={unitPreferences.temperature === "celsius" ? "48" : "120"}
-                            {...field}
-                            value={field.value === 0 ? '' : field.value}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              field.onChange(value === '' ? 0 : Number(value));
-                            }}
-                            className="h-8 text-sm"
-                            data-testid="input-ambient-temp"
-                          />
-                        </div>
-                        <Select 
-                          value={unitPreferences.temperature} 
-                          onValueChange={(value: TemperatureUnit) => updateUnitPreference("temperature", value)}
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          placeholder={getUnitPlaceholder("temperature", unitPreferences.temperature)}
+                          min={unitPreferences.temperature === "celsius" ? "-40" : "-40"}
+                          max={unitPreferences.temperature === "celsius" ? "48" : "120"}
+                          {...field}
+                          value={field.value === 0 ? '' : field.value}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            field.onChange(value === '' ? 0 : Number(value));
+                          }}
+                          className="pr-9 h-8 text-sm"
+                          data-testid="input-ambient-temp"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateUnitPreference("temperature", unitPreferences.temperature === "fahrenheit" ? "celsius" : "fahrenheit")}
+                          className="absolute right-0 top-0 h-8 w-8 text-xs text-muted-foreground hover:text-foreground border-l border-input"
+                          data-testid="select-temperature-unit"
+                          aria-label="Toggle temperature unit"
                         >
-                          <SelectTrigger className="w-16 h-8 text-xs" data-testid="select-temperature-unit">
-                            <SelectValue placeholder="°F">
-                              {unitPreferences.temperature === "fahrenheit" ? "°F" : "°C"}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="fahrenheit">°F</SelectItem>
-                            <SelectItem value="celsius">°C</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          {unitPreferences.temperature === "fahrenheit" ? "°F" : "°C"}
+                        </button>
                       </div>
                     </FormControl>
                     <FormMessage />
@@ -643,88 +578,49 @@ export function SpeedCalculator({ onResults }: SpeedCalculatorProps) {
             </div>
 
 
-            {/* Bike Rack - Single item */}
-            <div className="grid grid-cols-1 gap-1.5">
+            {/* Bike Rack + Voice — combined compact row */}
+            <div className="flex items-center justify-between gap-2">
               <FormField
                 control={form.control}
                 name="hasBikeRack"
                 render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-2 space-y-0">
+                  <FormItem className="flex flex-row items-center space-x-1.5 space-y-0">
                     <FormControl>
                       <input
                         type="checkbox"
                         checked={field.value}
                         onChange={field.onChange}
-                        className="mt-1"
                         data-testid="checkbox-bike-rack"
                       />
                     </FormControl>
-                    <div className="flex items-center gap-1">
-                      <FormLabel className="text-sm font-medium">
-                        Loaded bike rack
-                      </FormLabel>
-                      <div className="relative group">
-                        <div className="w-3 h-3 rounded-full bg-muted border border-border flex items-center justify-center cursor-help">
-                          <span className="text-[8px] font-medium text-muted-foreground">i</span>
-                        </div>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-background border border-border rounded shadow-lg text-[10px] text-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                          Increases aerodynamic drag
-                        </div>
-                      </div>
-                    </div>
+                    <FormLabel className="text-xs font-medium cursor-pointer">
+                      Loaded bike rack
+                    </FormLabel>
                   </FormItem>
                 )}
               />
-            </div>
-
-
-
-            {/* Voice Input Section */}
-            {voiceInput.isSupported && (
-              <div className="mb-2 p-2 border border-border rounded-lg bg-muted/30">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant={voiceInput.isActive ? "destructive" : "secondary"}
-                      size="sm"
-                      onClick={voiceInput.isActive ? voiceInput.stopVoiceInput : voiceInput.startVoiceInput}
-                      disabled={isCalculating}
-                      className="h-7 text-xs"
-                      data-testid="button-voice-input"
-                    >
-                      {voiceInput.isActive ? (
-                        <>
-                          <MicOff className="mr-1 h-3 w-3" />
-                          Stop Voice
-                        </>
-                      ) : (
-                        <>
-                          <Mic className="mr-1 h-3 w-3" />
-                          Voice Input
-                        </>
-                      )}
-                    </Button>
-                    {voiceInput.isActive && (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        Field {voiceInput.currentFieldIndex + 1} of 2
-                      </div>
-                    )}
-                  </div>
-                  {(voiceInput.isSpeaking || voiceInput.isListening) && (
-                    <div className="flex items-center gap-1">
-                      <div className={`w-2 h-2 rounded-full ${voiceInput.isSpeaking ? 'bg-blue-500 animate-pulse' : 'bg-green-500 animate-pulse'}`} />
-                      <span className="text-xs text-muted-foreground">
-                        {voiceInput.isSpeaking ? 'Speaking' : 'Listening'}
-                      </span>
-                    </div>
+              {voiceInput.isSupported && (
+                <Button
+                  type="button"
+                  variant={voiceInput.isActive ? "destructive" : "secondary"}
+                  size="sm"
+                  onClick={voiceInput.isActive ? voiceInput.stopVoiceInput : voiceInput.startVoiceInput}
+                  disabled={isCalculating}
+                  className="h-7 text-xs px-2"
+                  data-testid="button-voice-input"
+                >
+                  {voiceInput.isActive ? (
+                    <><MicOff className="mr-1 h-3 w-3" />Stop</>
+                  ) : (
+                    <><Mic className="mr-1 h-3 w-3" />Voice</>
                   )}
-                </div>
-                {voiceInput.currentMessage && (
-                  <div className="mt-1 text-xs text-muted-foreground italic">
-                    {voiceInput.currentMessage}
-                  </div>
-                )}
+                </Button>
+              )}
+            </div>
+            {voiceInput.isActive && (voiceInput.currentMessage || voiceInput.isSpeaking || voiceInput.isListening) && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
+                <div className={`w-2 h-2 rounded-full ${voiceInput.isSpeaking ? 'bg-blue-500 animate-pulse' : 'bg-green-500 animate-pulse'}`} />
+                <span>{voiceInput.currentMessage || (voiceInput.isSpeaking ? 'Speaking' : 'Listening')}</span>
               </div>
             )}
 
